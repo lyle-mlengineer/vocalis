@@ -264,6 +264,7 @@
   let currentLibraryTab = "voices";
   let loadedVoices = [];
   let loadedAlbums = [];
+  let loadedDrafts = [];
 
   function setupLibrary() {
     const grid = $("[data-voice-grid]");
@@ -272,7 +273,7 @@
     $$("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
       currentLibraryTab = button.dataset.libraryTab;
       $$("[data-library-tab]").forEach((tab) => tab.classList.toggle("active", tab === button));
-      if (search) search.hidden = currentLibraryTab === "albums";
+      if (search) search.hidden = currentLibraryTab === "albums" || currentLibraryTab === "drafts";
       const create = $("[data-album-toolbar]");
       if (create) create.hidden = currentLibraryTab !== "albums" || !getToken();
       renderLibrary();
@@ -287,6 +288,7 @@
         loadedVoices = await api("/voices", { headers: listHeaders });
         if (getToken()) {
           loadedAlbums = await api("/albums");
+          loadedDrafts = await api("/voices?status=failed");
         }
         const count = $("[data-voice-count]");
         if (count) count.textContent = String(loadedVoices.length);
@@ -308,6 +310,16 @@
         grid.querySelectorAll("[data-delete-album]").forEach((button) => button.addEventListener("click", () => deleteAlbum(button.dataset.deleteAlbum)));
         grid.querySelectorAll("[data-edit-album]").forEach((button) => button.addEventListener("click", () => editAlbum(button.dataset.editAlbum)));
         grid.querySelectorAll("[data-add-album-voice]").forEach((button) => button.addEventListener("click", () => addVoiceToAlbum(button.dataset.addAlbumVoice)));
+        if (empty) empty.hidden = true;
+        return;
+      }
+      if (currentLibraryTab === "drafts") {
+        if (!getToken()) {
+          grid.innerHTML = '<div class="loading-card">Sign in to view your drafts. <a href="/login">Sign in →</a></div>';
+          if (empty) empty.hidden = true;
+          return;
+        }
+        grid.innerHTML = loadedDrafts.length ? loadedDrafts.map(renderVoiceCard).join("") : '<div class="loading-card">No failed voice generations. All your voices are working perfectly.</div>';
         if (empty) empty.hidden = true;
         return;
       }

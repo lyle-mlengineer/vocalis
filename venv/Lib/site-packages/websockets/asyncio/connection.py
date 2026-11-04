@@ -6,24 +6,30 @@ import contextlib
 import logging
 import random
 import struct
+import sys
 import traceback
 import uuid
-import weakref
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Iterable, Mapping
 from types import TracebackType
-from typing import Any, Literal, Self, cast, overload
+from typing import Any, Literal, cast, overload
 
 from ..exceptions import (
     ConcurrencyError,
     ConnectionClosed,
     ConnectionClosedOK,
     ProtocolError,
-    TooManyFragments,
 )
-from ..frames import DATA_OPCODES, PONG, CloseCode, Frame
+from ..frames import DATA_OPCODES, CloseCode, Frame, Opcode
 from ..http11 import Request, Response
 from ..protocol import CLOSED, OPEN, Event, Protocol, State
 from ..typing import BytesLike, Data, DataLike, LoggerLike, Subprotocol
+from .compatibility import (
+    TimeoutError,
+    aiter,
+    anext,
+    asyncio_timeout,
+    asyncio_timeout_at,
+)
 from .messages import Assembler
 
 
@@ -69,7 +75,7 @@ class Connection(asyncio.Protocol):
         # Inject reference to this instance in the protocol's logger.
         self.protocol.logger = logging.LoggerAdapter(
             self.protocol.logger,
-            {"websocket": weakref.proxy(self)},
+            {"websocket": self},
         )
 
         # Copy attributes from the protocol for convenience.
@@ -116,9 +122,9 @@ class Connection(asyncio.Protocol):
         # Task that sends keepalive pings. None when ping_interval is None.
         self.keepalive_task: asyncio.Task[None] | None = None
 
-        # Exception that caused the connection to drop, to chain to
-        # ConnectionClosed.
-        self.connection_exc: BaseException | None = None
+        # Exception raised while reading from the connection, to be chained to
+        # ConnectionClosed in order to show why the TCP connection dropped.
+        self.recv_exc: BaseException | None = None
 
         # Completed when the TCP connection is closed and the WebSocket
         # connection state becomes CLOSED.
@@ -207,7 +213,7 @@ class Connection(asyncio.Protocol):
 
     # Public methods
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> Connection:
         return self
 
     async def __aexit__(
@@ -305,12 +311,7 @@ class Connection(asyncio.Protocol):
                 "cannot call recv while another coroutine "
                 "is already running recv or recv_streaming"
             ) from None
-        except TooManyFragments as exc:
-            self.set_connection_exc(exc)
-            async with self.send_context():
-                self.protocol.fail(CloseCode.MESSAGE_TOO_BIG, "too many fragments")
         except UnicodeDecodeError as exc:
-            self.set_connection_exc(exc)
             async with self.send_context():
                 self.protocol.fail(
                     CloseCode.INVALID_DATA,
@@ -320,7 +321,7 @@ class Connection(asyncio.Protocol):
 
         # Wait for the protocol state to be CLOSED before accessing close_exc.
         await asyncio.shield(self.connection_lost_waiter)
-        raise self.close_exc
+        raise self.protocol.close_exc from self.recv_exc
 
     @overload
     def recv_streaming(self, decode: Literal[True]) -> AsyncIterator[str]: ...
@@ -388,7 +389,6 @@ class Connection(asyncio.Protocol):
                 "is already running recv or recv_streaming"
             ) from None
         except UnicodeDecodeError as exc:
-            self.set_connection_exc(exc)
             async with self.send_context():
                 self.protocol.fail(
                     CloseCode.INVALID_DATA,
@@ -398,12 +398,11 @@ class Connection(asyncio.Protocol):
 
         # Wait for the protocol state to be CLOSED before accessing close_exc.
         await asyncio.shield(self.connection_lost_waiter)
-        raise self.close_exc
+        raise self.protocol.close_exc from self.recv_exc
 
     async def send(
         self,
         message: DataLike | Iterable[DataLike] | AsyncIterable[DataLike],
-        *,
         text: bool | None = None,
     ) -> None:
         """
@@ -473,7 +472,7 @@ class Connection(asyncio.Protocol):
         while self.send_in_progress is not None:
             await asyncio.shield(self.send_in_progress)
 
-        # Unfragmented message — this case must be handled first because
+        # Unfragmented message -- this case must be handled first because
         # strings and bytes-like objects are iterable.
 
         if isinstance(message, str):
@@ -490,12 +489,12 @@ class Connection(asyncio.Protocol):
                 else:
                     self.protocol.send_binary(message)
 
-        # Catch a common mistake — passing a dict to send().
+        # Catch a common mistake -- passing a dict to send().
 
         elif isinstance(message, Mapping):
             raise TypeError("data is a dict-like object")
 
-        # Fragmented message — regular iterator.
+        # Fragmented message -- regular iterator.
 
         elif isinstance(message, Iterable):
             chunks = iter(message)
@@ -554,7 +553,7 @@ class Connection(asyncio.Protocol):
                 self.send_in_progress.set_result(None)
                 self.send_in_progress = None
 
-        # Fragmented message — async iterator.
+        # Fragmented message -- async iterator.
 
         elif isinstance(message, AsyncIterable):
             achunks = aiter(message)
@@ -755,7 +754,7 @@ class Connection(asyncio.Protocol):
         if event.opcode in DATA_OPCODES:
             self.recv_messages.put(event)
 
-        if event.opcode is PONG:
+        if event.opcode is Opcode.PONG:
             self.acknowledge_pings(bytes(event.data))
 
     def acknowledge_pings(self, data: bytes) -> None:
@@ -832,7 +831,7 @@ class Connection(asyncio.Protocol):
 
                 if self.ping_timeout is not None:
                     try:
-                        async with asyncio.timeout(self.ping_timeout):
+                        async with asyncio_timeout(self.ping_timeout):
                             # connection_lost cancels keepalive immediately
                             # after setting a ConnectionClosed exception on
                             # pong_received. A CancelledError is raised here,
@@ -888,6 +887,9 @@ class Connection(asyncio.Protocol):
         wait_for_close = False
         # Should we close the transport and raise ConnectionClosed?
         raise_close_exc = False
+        # What exception should we chain ConnectionClosed to?
+        original_exc: BaseException | None = None
+
         if self.protocol.state is expected_state:
             # Let the caller interact with the protocol.
             try:
@@ -902,7 +904,7 @@ class Connection(asyncio.Protocol):
                 # connection and raise the exception to the caller.
                 wait_for_close = False
                 raise_close_exc = True
-                self.set_connection_exc(exc)
+                original_exc = exc
             else:
                 # Check if the connection is expected to close soon.
                 if self.protocol.close_expected():
@@ -927,7 +929,7 @@ class Connection(asyncio.Protocol):
                     # other exceptions would be treated identically.
                     wait_for_close = False
                     raise_close_exc = True
-                    self.set_connection_exc(exc)
+                    original_exc = exc
 
         else:  # self.protocol.state is not expected_state
             # Minor layering violation: we assume that the connection
@@ -943,15 +945,17 @@ class Connection(asyncio.Protocol):
         # elapses, close the socket to terminate the connection.
         if wait_for_close:
             try:
-                async with asyncio.timeout_at(self.close_deadline):
+                async with asyncio_timeout_at(self.close_deadline):
                     await asyncio.shield(self.connection_lost_waiter)
             except TimeoutError:
-                # Set connection_exc before closing the transport in order to
-                # get proper exception reporting.
+                # There's no risk of overwriting another error because
+                # original_exc is never set when wait_for_close is True.
+                assert original_exc is None
+                original_exc = TimeoutError("timed out while closing connection")
+                # Set recv_exc before closing the transport in order to get
+                # proper exception reporting.
                 raise_close_exc = True
-                self.set_connection_exc(
-                    TimeoutError("timed out while closing connection")
-                )
+                self.set_recv_exc(original_exc)
 
         # If an error occurred, close the transport to terminate the connection and
         # raise an exception.
@@ -959,7 +963,7 @@ class Connection(asyncio.Protocol):
             self.transport.abort()
             # Wait for the protocol state to be CLOSED before accessing close_exc.
             await asyncio.shield(self.connection_lost_waiter)
-            raise self.close_exc
+            raise self.protocol.close_exc from original_exc
 
     def send_data(self) -> None:
         """
@@ -986,20 +990,15 @@ class Connection(asyncio.Protocol):
                         self.logger.debug("x closing TCP connection")
                     self.transport.close()
 
-    @property
-    def close_exc(self) -> ConnectionClosed:
-        exc = self.protocol.close_exc
-        if self.connection_exc is not None:
-            exc.__cause__ = self.connection_exc
-        return exc
-
-    def set_connection_exc(self, exc: BaseException | None) -> None:
+    def set_recv_exc(self, exc: BaseException | None) -> None:
         """
-        Set connection_exc, if not set yet.
+        Set recv_exc, if not set yet.
+
+        This method must be called only from connection callbacks.
 
         """
-        if self.connection_exc is None:
-            self.connection_exc = exc
+        if self.recv_exc is None:
+            self.recv_exc = exc
 
     # asyncio.Protocol methods
 
@@ -1025,7 +1024,7 @@ class Connection(asyncio.Protocol):
         self.protocol.receive_eof()
         assert self.protocol.state is CLOSED
 
-        self.set_connection_exc(exc)
+        self.set_recv_exc(exc)
 
         # Abort recv() and pending pings with a ConnectionClosed exception.
         self.recv_messages.close()
@@ -1033,8 +1032,6 @@ class Connection(asyncio.Protocol):
 
         if self.keepalive_task is not None:
             self.keepalive_task.cancel()
-            # Break reference cycle to allow immediate garbage collection.
-            self.keepalive_task = None
 
         # If self.connection_lost_waiter isn't pending, that's a bug, because:
         # - it's set only here in connection_lost() which is called only once;
@@ -1053,26 +1050,26 @@ class Connection(asyncio.Protocol):
 
     # Flow control callbacks
 
-    def pause_writing(self) -> None:
+    def pause_writing(self) -> None:  # pragma: no cover
         # Adapted from asyncio.streams.FlowControlMixin
         assert not self.paused
         self.paused = True
 
-    def resume_writing(self) -> None:
+    def resume_writing(self) -> None:  # pragma: no cover
         # Adapted from asyncio.streams.FlowControlMixin
         assert self.paused
         self.paused = False
         for waiter in self.drain_waiters:
-            if not waiter.done():  # pragma: no branch
+            if not waiter.done():
                 waiter.set_result(None)
 
-    async def drain(self) -> None:
+    async def drain(self) -> None:  # pragma: no cover
         # We don't check if the connection is closed because we call drain()
         # immediately after write() and write() would fail in that case.
 
         # Adapted from asyncio.streams.StreamWriter
         # Yield to the event loop so that connection_lost() may be called.
-        if self.transport.is_closing():  # pragma: no cover
+        if self.transport.is_closing():
             await asyncio.sleep(0)
 
         # Adapted from asyncio.streams.FlowControlMixin
@@ -1099,7 +1096,7 @@ class Connection(asyncio.Protocol):
         except Exception as exc:
             if self.debug:
                 self.logger.debug("! error while sending data", exc_info=True)
-            self.set_connection_exc(exc)
+            self.set_recv_exc(exc)
 
         # If needed, set the close deadline based on the close timeout.
         if self.protocol.close_expected():
@@ -1151,9 +1148,9 @@ class Connection(asyncio.Protocol):
 def broadcast(
     connections: Iterable[Connection],
     message: DataLike,
+    raise_exceptions: bool = False,
     *,
     text: bool | None = None,
-    raise_exceptions: bool = False,
 ) -> None:
     """
     Broadcast a message to several WebSocket connections.
@@ -1194,9 +1191,9 @@ def broadcast(
     errors on connections where the closing handshake is in progress.
 
     :func:`broadcast` ignores failures to write the message on some connections.
-    It continues writing to other connections. You may set ``raise_exceptions``
-    to :obj:`True` to record failures and raise all exceptions in a :pep:`654`
-    :exc:`ExceptionGroup`.
+    It continues writing to other connections. On Python 3.11 and above, you may
+    set ``raise_exceptions`` to :obj:`True` to record failures and raise all
+    exceptions in a :pep:`654` :exc:`ExceptionGroup`.
 
     While :func:`broadcast` makes more sense for servers, it works identically
     with clients, if you have a use case for opening connections to many servers
@@ -1221,6 +1218,8 @@ def broadcast(
         raise TypeError("data must be str or bytes")
 
     if raise_exceptions:
+        if sys.version_info[:2] < (3, 11):  # pragma: no cover
+            raise ValueError("raise_exceptions requires at least Python 3.11")
         exceptions: list[Exception] = []
 
     for connection in connections:

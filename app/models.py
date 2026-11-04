@@ -54,8 +54,9 @@ class VoiceRecord(Base):
     age_range: Mapped[str] = mapped_column(String(80))
     ethnicity: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text)
-    provider_voice_id: Mapped[str] = mapped_column(String(255))
+    provider_voice_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     preview_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="completed", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     owner: Mapped[User | None] = relationship(back_populates="voices")

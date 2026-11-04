@@ -74,14 +74,14 @@ def generate_voice(
             description=body.description,
             provider_voice_id=None,
             preview_url=None,
+            status="completed",
         )
         db.add(record)
         db.commit()
         db.refresh(record)
     except IntegrityError as exc:
         db.rollback()
-        # raise HTTPException(status_code=409, detail="A guest voice was already generated for this session.") from exc
-        raise HTTPException(status_code=409, detail="Database integrity error.") from exc
+        raise HTTPException(status_code=409, detail="A voice with this title already exists. Please choose a different title.") from exc
     except Exception:
         db.rollback()
         raise
@@ -94,14 +94,21 @@ def list_voices(
     db: DbSession,
     user: OptionalUser,
     x_guest_id: str | None = Header(default=None, alias="X-Guest-ID"),
+    status: str | None = None,
 ) -> list[VoiceResponse]:
     if user:
-        records = db.query(VoiceRecord).filter(VoiceRecord.owner_id == user.id).order_by(VoiceRecord.created_at.desc()).all()
+        query = db.query(VoiceRecord).filter(VoiceRecord.owner_id == user.id)
+        if status:
+            query = query.filter(VoiceRecord.status == status)
+        records = query.order_by(VoiceRecord.created_at.desc()).all()
     else:
         guest_id = _guest_id(x_guest_id)
         if guest_id is None:
             raise HTTPException(status_code=401, detail="Sign in or provide X-Guest-ID.")
-        records = db.query(VoiceRecord).filter(VoiceRecord.guest_id == guest_id).all()
+        query = db.query(VoiceRecord).filter(VoiceRecord.guest_id == guest_id)
+        if status:
+            query = query.filter(VoiceRecord.status == status)
+        records = query.all()
     return [VoiceResponse.model_validate(record) for record in records]
 
 
@@ -166,6 +173,7 @@ def regenerate_voice(
         record.description = body.description
         record.provider_voice_id = None
         record.preview_url = None
+        record.status = "completed"
         db.commit()
         db.refresh(record)
     except Exception:
