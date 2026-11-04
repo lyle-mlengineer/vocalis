@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="app-shell">
+  <div class="app-heading"><div><span class="eyebrow">YOUR SOUND COLLECTION</span><h1>Voice <em>library.</em></h1><p>Every character you’ve created, together in one place.</p></div><a href="/studio" class="button button-primary">Create a voice <span>＋</span></a></div>
+  <div class="library-toolbar"><div class="segmented" role="tablist"><button class="active" type="button" data-library-tab="voices">All voices <span data-voice-count>0</span></button><button type="button" data-library-tab="albums">Albums</button></div><label class="search-field"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search your voices" aria-label="Search voices" data-voice-search></label></div>
+  <div class="album-toolbar" data-album-toolbar hidden><button type="button" class="button button-outline" data-create-album>＋ New album</button></div>
+  <div class="voice-grid" data-voice-grid aria-live="polite"><div class="loading-card">Loading your voice library…</div></div>
+  <div class="empty-state" data-library-empty hidden><div class="empty-wave">〰</div><h2>Your next favourite voice starts here.</h2><p>Build your first voice, then find it here whenever inspiration strikes.</p><a class="button button-primary" href="/studio">Create your first voice <span>→</span></a></div>
+</section>
+<dialog class="modal" data-voice-modal><form method="dialog" class="modal-dismiss"><button aria-label="Close dialog">×</button></form><div data-modal-content></div></dialog>
+{% endblock %}

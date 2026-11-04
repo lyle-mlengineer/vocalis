@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="app-shell playground-shell">
+  <div class="app-heading"><div><span class="eyebrow">THE LISTENING ROOM</span><h1>Let it <em>speak.</em></h1><p>Choose a voice, write a little something, and hear the feeling.</p></div><a class="text-link" href="/voices">← Back to your voices</a></div>
+  <div class="playground-layout">
+    <section class="form-card playground-form">
+      <label class="field-label" for="play-voice">Choose a voice</label><select id="play-voice" data-play-voice required><option value="">Loading your voices…</option></select>
+      <div class="selected-voice" data-selected-voice><div class="voice-avatar">V</div><div><b>Select a voice to begin</b><span>Your voice details will appear here</span></div><a href="/studio" aria-label="Create a voice">＋</a></div>
+      <label class="field-label" for="play-text">What should it say?</label><textarea id="play-text" rows="6" maxlength="5000" placeholder="Write something worth listening to…" data-play-text></textarea><div class="field-hint"><span data-character-count>0</span> / 5,000 characters</div>
+      <div class="setting-row"><label class="field-label" for="play-style">Speaking style</label><select id="play-style" data-play-style><option value="">Natural</option><option>Conversational</option><option>Calm</option><option>Confident</option><option>Cheerful</option><option>Storytelling</option><option>Whispering</option></select></div>
+      <div class="slider-setting"><div><label for="play-rate">Speaking rate</label><output data-rate-value>1.0×</output></div><input id="play-rate" type="range" min="0.5" max="2" step="0.1" value="1" data-play-rate></div>
+      <div class="slider-setting"><div><label for="play-volume">Volume</label><output data-volume-value>100%</output></div><input id="play-volume" type="range" min="0" max="1" step="0.05" value="1" data-play-volume></div>
+      <button class="button button-primary button-wide" type="button" data-synthesize>Generate speech <span>→</span></button>
+    </section>
+    <aside class="listen-card"><div class="listen-art"><div class="listen-ring"></div><div class="listen-mic"><i></i><b></b></div></div><span class="eyebrow">YOUR PRIVATE LISTENING ROOM</span><h2>A voice is a feeling.</h2><p>Try different words and settings. The smallest change can bring a whole new character to life.</p><div class="audio-output" data-audio-output hidden><audio controls data-audio></audio><a class="button button-outline button-small" data-audio-download download="vocalis-speech.mp3">Download audio</a></div><div class="generate-note"><span>✦</span><p>Speech synthesis uses credits from your balance. Longer scripts may use more.</p></div></aside>
+  </div>
+</section>
+{% endblock %}

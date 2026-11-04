@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="app-shell billing-shell">
+  <div class="app-heading"><div><span class="eyebrow">FLEXIBLE BY DESIGN</span><h1>Make room for <em>more.</em></h1><p>Simple credit packs, in Kenyan shillings. No subscriptions, no surprises.</p></div><div class="credit-badge"><span>YOUR BALANCE</span><strong data-billing-balance>— <small>credits</small></strong></div></div>
+  <div class="billing-heading"><div><span class="eyebrow">CHOOSE YOUR CREDIT PACK</span><h2>Pick your pace.</h2></div><span class="currency-label">All prices in KES · one-time purchase</span></div>
+  <div class="pack-grid" data-pack-grid><div class="loading-card">Loading credit packs…</div></div>
+  <section class="payment-section"><div class="section-title-row"><div><span class="eyebrow">PAYMENT, YOUR WAY</span><h2>Good things, easy checkout.</h2></div><span class="secure-label">⌑ Secure payments</span></div><div class="payment-methods"><article><span class="payment-icon mpesa-icon">M</span><div><b>M-Pesa</b><p>STK push, Paybill, Till or scan to pay</p></div></article><article><span class="payment-icon card-icon">▰</span><div><b>Card payment</b><p>Visa, Mastercard and more</p></div></article></div></section>
+  <section class="dashboard-section"><div class="section-title-row"><div><span class="eyebrow">YOUR TRANSACTIONS</span><h2>Payment history</h2></div></div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Date</th><th>Payment</th><th>Credits</th><th>Status</th></tr></thead><tbody data-payment-history><tr><td colspan="4">Loading payment history…</td></tr></tbody></table></div></section>
+</section>
+<dialog class="modal payment-modal" data-payment-modal><form method="dialog" class="modal-dismiss"><button aria-label="Close dialog">×</button></form><div data-payment-content></div></dialog>
+{% endblock %}

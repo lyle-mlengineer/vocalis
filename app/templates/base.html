@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fcfaf6">
+  <meta name="description" content="Design expressive AI voices for your next big idea with Vocalis.">
+  <title>{{ title }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,700;0,800;1,700;1,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css?v=2">
+  <script>
+    window.VOCALIS_FIREBASE = {{ firebase_config | tojson }};
+    window.VOCALIS_PAGE = {{ page | tojson }};
+  </script>
+  <script src="/static/js/app.js?v=2" defer></script>
+</head>
+<body class="page-{{ page }}">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="nav-wrap">
+      <a class="brand" href="/" aria-label="Vocalis home">Vocal<span>is</span><i>.</i></a>
+      <button class="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" data-menu-toggle>
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="main-nav" aria-label="Main navigation" data-menu>
+        <a class="{{ 'active' if page == 'studio' else '' }}" href="/studio">Studio</a>
+        <a href="/voices">Voices</a>
+        <a class="{{ 'active' if page == 'pricing' else '' }}" href="/pricing">Pricing</a>
+        <a class="{{ 'active' if page == 'playground' else '' }}" href="/playground">Playground</a>
+        <a href="/faq">FAQ</a>
+        <span class="nav-auth" data-auth-nav>
+          <a class="signin-link" href="/login">Sign in</a>
+          <a class="button button-small button-primary" href="/register">Start free <span aria-hidden="true">→</span></a>
+        </span>
+        <span class="nav-user" data-user-nav hidden>
+          <a href="/dashboard">Dashboard</a>
+          <button type="button" class="button button-small button-primary" data-logout>Sign out</button>
+        </span>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <a class="brand" href="/">Vocal<span>is</span><i>.</i></a>
+      <p>Make every word sound like you mean it.</p>
+      <div class="footer-links"><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/studio">Create a voice</a></div>
+      <span class="copyright">© 2026 Vocalis Studio</span>
+    </div>
+  </footer>
+  <div class="toast-region" aria-live="polite" aria-atomic="true" data-toast></div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="status-dot"></span> Voice Studio 2.0 is live <span aria-hidden="true">→</span></span>
+      <h1>Human voices,<br><em>designed by AI</em></h1>
+      <p class="hero-lede">Turn a few thoughtful words into a voice with real presence. Find your sound, shape its character, and bring your next idea to life.</p>
+      <div class="hero-actions">
+        <a class="button button-primary button-large" href="/studio">Start creating <span aria-hidden="true">→</span></a>
+        <a class="button button-outline button-large" href="#how-it-works"><span class="play-icon">▶</span> See how it works</a>
+      </div>
+      <div class="social-proof"><div class="avatar-stack"><span>MC</span><span>JR</span><span>AL</span><span>SK</span></div><p>Trusted by <strong>12,000+</strong> creative teams</p></div>
+    </div>
+    <div class="hero-visual" aria-label="Illustration of a studio microphone with an audio waveform">
+      <div class="studio-art">
+        <div class="room-light room-light-one"></div><div class="room-light room-light-two"></div>
+        <div class="sound-panel"><span></span><i></i><i></i><i></i><i></i><b></b></div>
+        <div class="gold-orbit orbit-one"></div><div class="gold-orbit orbit-two"></div>
+        <div class="mic-stage">
+          <div class="mic-capsule"><div class="mic-grille"></div><div class="mic-band"></div><div class="mic-body"></div><div class="mic-neck"></div></div>
+          <div class="mic-holder"></div><div class="mic-stand"></div><div class="mic-base"></div>
+        </div>
+        <span class="clone-pill"><span>✦</span> Your voice, in seconds</span>
+        <div class="audio-float"><button class="audio-play" type="button" aria-label="Play sample" data-demo-play>▶</button><div class="audio-meta"><b>Aria</b><span>Warm · EN-US</span><div class="waveform" aria-hidden="true"></div></div><small>0:12</small></div>
+      </div>
+    </div>
+  </div>
+  <div class="hero-bottom"><span>YOUR NEXT STORY STARTS HERE</span><span>01 — 03</span></div>
+</section>
+<section class="trust-strip"><span>Made for the voices behind</span><b>STORIES</b><b>PRODUCTS</b><b>GAMES</b><b>LEARNING</b><b>EVERYTHING</b></section>
+<section class="section how-section" id="how-it-works">
+  <div class="section-heading"><span class="eyebrow">A little imagination goes a long way</span><h2>From idea to <em>identity.</em></h2><p>No casting calls. No recording booth. Just your words and a voice that feels right.</p></div>
+  <div class="steps-grid">
+    <article class="step-card"><span class="step-number">01</span><div class="step-icon">✳</div><h3>Describe your voice</h3><p>Choose the qualities that matter, from tone and age to a detailed creative direction.</p></article>
+    <article class="step-card"><span class="step-number">02</span><div class="step-icon">〰</div><h3>Make it yours</h3><p>Listen, adjust the character, and shape the voice until it sounds just right.</p></article>
+    <article class="step-card"><span class="step-number">03</span><div class="step-icon">↗</div><h3>Bring it to life</h3><p>Try it in the playground, save it to your library, and use it in your next project.</p></article>
+  </div>
+  <div class="section-cta"><a class="button button-dark" href="/studio">Design your first voice <span>→</span></a></div>
+</section>
+<section class="quote-band"><p>“A voice is more than what you say.<br><em>It's how people remember it.</em>”</p><span>MAKE SOMETHING THAT SOUNDS LIKE YOU</span></section>
+{% endblock %}
