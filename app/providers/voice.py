@@ -25,6 +25,8 @@ class VoiceProvider(Protocol):
 
     def synthesize(self, provider_voice_id: str, text: str, settings: dict) -> bytes: ...
 
+    def delete_voice(self, provider_voice_id: str) -> None: ...
+
 
 class HttpVoiceProvider:
     """Adapter for a voice service exposing Vocalis' small provider HTTP contract."""
@@ -67,6 +69,17 @@ class HttpVoiceProvider:
             return response.content
         except httpx.HTTPError as exc:
             raise VoiceProviderError("Speech synthesis provider request failed.") from exc
+
+    def delete_voice(self, provider_voice_id: str) -> None:
+        try:
+            response = httpx.delete(
+                f"{self.base_url}/voices/{quote(provider_voice_id, safe='')}",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise VoiceProviderError("Voice deletion provider request failed.") from exc
 
 
 class BreezeVoiceProvider:
@@ -191,6 +204,16 @@ class BreezeVoiceProvider:
             if isinstance(exc, VoiceProviderError):
                 raise
             raise VoiceProviderError(f"Breeze speech synthesis failed: {str(exc)}") from exc
+
+    def delete_voice(self, provider_voice_id: str) -> None:
+        """Delete a voice using Breeze TTS."""
+        try:
+            result = self.client.voices.delete(voice_id=provider_voice_id)
+            print(f"Breeze: Deleted voice with ID: {provider_voice_id}, result: {result}")
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze voice deletion failed: {str(exc)}") from exc
 
 
 def provider_from_settings(settings: Settings) -> VoiceProvider | None:

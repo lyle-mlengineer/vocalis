@@ -270,6 +270,11 @@
     const grid = $("[data-voice-grid]");
     if (!grid) return;
     const search = $("[data-voice-search]");
+    grid.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) return;
+      const button = event.target.closest("[data-voice-action]");
+      if (button) onVoiceAction(button);
+    });
     $$("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
       currentLibraryTab = button.dataset.libraryTab;
       $$("[data-library-tab]").forEach((tab) => tab.classList.toggle("active", tab === button));
@@ -328,7 +333,6 @@
       grid.innerHTML = filtered.map(renderVoiceCard).join("");
       if (empty) empty.hidden = loadedVoices.length > 0;
       if (!loadedVoices.length) grid.innerHTML = "";
-      grid.querySelectorAll("[data-voice-action]").forEach((button) => button.addEventListener("click", onVoiceAction));
     }
 
     function renderVoiceCard(voice) {
@@ -348,15 +352,16 @@
       return `<article class="album-card"><div class="album-cover" aria-hidden="true">▤</div><h3>${escapeHtml(album.title)}</h3><p>${escapeHtml(album.description || "A collection of voices for your next idea.")}</p><small>${album.voice_ids.length} ${album.voice_ids.length === 1 ? "voice" : "voices"}</small><div class="voice-card-actions">${actions}</div>${album.voice_ids.length ? `<p>Voice IDs: ${album.voice_ids.map(escapeHtml).join(", ")}</p>` : ""}</article>`;
     }
 
-    async function onVoiceAction(event) {
-      const { action, id } = event.currentTarget.dataset;
-      const voice = loadedVoices.find((item) => item.id === id);
+    async function onVoiceAction(button) {
+      const { voiceAction: action, id } = button.dataset;
+      const voice = [...loadedVoices, ...loadedDrafts].find((item) => item.id === id);
       if (!voice) return;
       if (action === "delete") {
-        if (!window.confirm(`Delete "${voice.title}"? This will delete the voice data and remove it from all albums. This cannot be undone.`)) return;
+        if (!window.confirm(`Delete "${voice.title}"? This will delete its voice reference and remove it from all albums. This cannot be undone.`)) return;
         try {
           await api(`/voices/${encodeURIComponent(id)}`, { method: "DELETE" });
           loadedVoices = loadedVoices.filter((item) => item.id !== id);
+          loadedDrafts = loadedDrafts.filter((item) => item.id !== id);
           // Reload albums to update voice references
           if (getToken()) {
             loadedAlbums = await api("/albums");
@@ -461,6 +466,7 @@
         });
         const position = loadedVoices.findIndex((item) => item.id === voice.id);
         if (position >= 0) loadedVoices[position] = updated;
+        loadedDrafts = loadedDrafts.filter((item) => item.id !== voice.id);
         modal.close();
         toast(regenerate ? "Voice regenerated." : "Voice updated.", "success");
         $(`[data-library-tab="${currentLibraryTab}"]`)?.click();

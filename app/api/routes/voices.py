@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
@@ -13,6 +14,7 @@ from app.schemas import DeleteResponse, VoiceGenerateRequest, VoiceResponse, Voi
 from app.services import charge_credits, refund_credits
 
 router = APIRouter(tags=["voices"])
+REFERENCE_DIR = Path(__file__).resolve().parents[2] / "data" / "references"
 
 
 def _guest_id(value: str | None) -> str | None:
@@ -214,10 +216,33 @@ def regenerate_voice(
 
 
 @router.delete("/voices/{voice_id}", response_model=DeleteResponse)
-def delete_voice(voice_id: str, db: DbSession, user: CurrentUser) -> DeleteResponse:
+def delete_voice(voice_id: str, request: Request, db: DbSession, user: CurrentUser) -> DeleteResponse:
     record = _owned_voice(db, voice_id, user.id)
+    reference_path = None
+    if record.provider_voice_id:
+        reference_dir = REFERENCE_DIR.resolve()
+        candidate = (reference_dir / f"{record.provider_voice_id}.mp3").resolve()
+        if candidate.parent != reference_dir:
+            raise HTTPException(status_code=500, detail="Voice reference path is invalid.")
+        reference_path = candidate
+
+        provider = request.app.state.voice_provider
+        if provider is not None:
+            try:
+                provider.delete_voice(record.provider_voice_id)
+            except VoiceProviderError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     db.delete(record)
     db.commit()
+    if reference_path is not None:
+        try:
+            reference_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Voice was deleted, but its local reference could not be removed.",
+            ) from exc
     return DeleteResponse(deleted=True)
 
 

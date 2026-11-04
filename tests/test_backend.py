@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.routes import voices as voice_routes
 from app.domain import Album, CreditAccount
 from app.main import create_app
 from app.models import CreditLedger, PaymentRecord, User, VoiceRecord
@@ -9,11 +10,17 @@ from app.services import settle_payment
 
 
 class FakeVoiceProvider:
+    def __init__(self):
+        self.deleted_voice_ids = []
+
     def create_voice(self, specification: dict) -> GeneratedVoice:
         return GeneratedVoice("provider-voice-1", "https://audio.example.test/preview.mp3")
 
     def synthesize(self, provider_voice_id: str, text: str, settings: dict) -> bytes:
         return b"test-audio"
+
+    def delete_voice(self, provider_voice_id: str) -> None:
+        self.deleted_voice_ids.append(provider_voice_id)
 
 
 @pytest.fixture
@@ -98,6 +105,40 @@ def test_registered_voice_generation_charges_credits(client: TestClient):
     assert client.get("/api/v1/credits", headers=headers).json() == {"balance": 2}
     ledger = client.get("/api/v1/credits/ledger", headers=headers).json()
     assert ledger[0]["delta"] == -1
+
+
+def test_delete_voice_removes_local_reference(client: TestClient, monkeypatch, tmp_path):
+    _, token = register(client)
+    headers = {"Authorization": "Bearer " + token}
+    reference_dir = tmp_path / "references"
+    reference_dir.mkdir()
+    reference = reference_dir / "provider-voice-1.mp3"
+    reference.write_bytes(b"voice reference")
+    monkeypatch.setattr(voice_routes, "REFERENCE_DIR", reference_dir)
+
+    with client.app.state.session_factory() as session:
+        user = session.query(User).one()
+        voice = VoiceRecord(
+            owner_id=user.id,
+            title="Voice",
+            gender="woman",
+            age_range="adult",
+            ethnicity="Kenyan",
+            description="A clear and expressive voice.",
+            provider_voice_id="provider-voice-1",
+        )
+        session.add(voice)
+        session.commit()
+        voice_id = voice.id
+
+    response = client.delete(f"/api/v1/voices/{voice_id}", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted": True}
+    assert not reference.exists()
+    assert client.app.state.voice_provider.deleted_voice_ids == ["provider-voice-1"]
+    with client.app.state.session_factory() as session:
+        assert session.query(VoiceRecord).filter_by(id=voice_id).one_or_none() is None
 
 
 def test_playground_synthesizes_and_charges(client: TestClient):
