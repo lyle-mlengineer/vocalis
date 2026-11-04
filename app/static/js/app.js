@@ -192,7 +192,11 @@
         toast("Your new voice is ready.", "success");
         if (!getToken()) localStorage.setItem("vocalis.guestVoiceId", response.id);
       } catch (error) {
-        toast(error.message, "error");
+        if (error.message.includes("Guest generation has already been used") && !getToken()) {
+          toast("You've reached your free trial limit. <a href='/register'>Create an account</a> to continue.", "error");
+        } else {
+          toast(error.message, "error");
+        }
       } finally {
         submit.disabled = false;
         submit.innerHTML = originalLabel;
