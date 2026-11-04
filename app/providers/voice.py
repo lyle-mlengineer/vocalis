@@ -185,23 +185,7 @@ class BreezeVoiceProvider:
                 output_format=output_format
             )
             
-            # Convert to bytes if it's a file-like object
-            if hasattr(audio, 'read'):
-                # It's a file-like object
-                buffer = BytesIO()
-                audio.save(buffer, format=output_format)
-                return buffer.getvalue()
-            elif isinstance(audio, bytes):
-                return audio
-            else:
-                # Assume it's a path or similar, try to read it
-                if hasattr(audio, 'save'):
-                    # It's an audio object with save method
-                    buffer = BytesIO()
-                    audio.save(buffer, format=output_format)
-                    return buffer.getvalue()
-                else:
-                    raise VoiceProviderError("Unexpected audio format from Breeze API.")
+            return audio.content
                     
         except Exception as exc:
             if isinstance(exc, VoiceProviderError):
