@@ -1,8 +1,12 @@
+import base64
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import quote
-from io import BytesIO
 from pathlib import Path
+from fishaudio import TTSConfig
+import requests
+import os
+from uuid import uuid4
 
 
 import httpx
@@ -216,11 +220,126 @@ class BreezeVoiceProvider:
             raise VoiceProviderError(f"Breeze voice deletion failed: {str(exc)}") from exc
 
 
+class FishVoiceProvider:
+    """Adapter for Fish TTS API."""
+
+    def __init__(self, api_key: str):
+        from fishaudio import FishAudio
+
+        self.client = FishAudio(api_key=api_key)
+        self.api_key = api_key
+
+    def create_voice(self, specification: dict) -> GeneratedVoice:
+        """Create a voice using Fish TTS."""
+        try:
+            # Build voice description from specification
+            description_parts = []
+            if specification.get("gender"):
+                description_parts.append(f"{specification['gender']}")
+            if specification.get("age_range"):
+                description_parts.append(f"{specification['age_range']}")
+            if specification.get("ethnicity"):
+                description_parts.append(f"{specification['ethnicity']}")
+            if specification.get("description"): 
+                description_parts.append(specification["description"])
+            
+            voice_description = ". ".join(description_parts)
+            voice_name = specification.get("title", "Untitled Voice")
+
+            print(f"Breeze: Creating voice with description: {voice_description}")
+
+
+            response = requests.post(
+                "https://api.fish.audio/v1/voice-design",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "model": "voice-design-1",
+                },
+                json={
+                    "instruction": "Warm, confident studio narrator with a natural tone",
+                    "reference_text": "Welcome to Fish Audio.",
+                    "language": "en",
+                    "n": 1,
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
+
+            candidate = response.json()["candidates"][0]
+            temp_id: str = str(uuid4())
+            parent_dir = Path(__file__).parent.parent
+            reference_dir = parent_dir / "data" / "references"
+            save_path: Path = reference_dir / f"{temp_id}.wav"
+            with open(str(save_path), "wb") as f:
+                f.write(base64.b64decode(candidate["audio_base64"]))
+
+            voice = None
+
+            with open(str(save_path), "rb") as f:
+                voice = self.client.voices.create(
+                    title=voice_name,
+                    voices=[f.read()],
+                    description=specification.get("description"),
+                    visibility="private",
+                )
+
+            voice_id = voice.id
+            print(f"Fish: Saved voice with voice name: {voice_name} and voice id: {voice_id}")
+
+            # Step 6: Rename the voice
+            new_save_path: Path = reference_dir / f"{voice_id}.wav"
+            print(f"Renaming: {save_path} to: {new_save_path}")
+            save_path.rename(new_save_path)
+            print("Renamed successfully!")
+            
+            # Return None for preview_url since we're using local files
+            return GeneratedVoice(provider_voice_id=voice_id, preview_url=None)
+            
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze voice creation failed: {str(exc)}") from exc
+
+    def synthesize(self, provider_voice_id: str, text: str, settings: dict) -> bytes:
+        """Synthesize speech using Breeze TTS."""
+        try:
+            # Extract settings with defaults
+            output_format = settings.get("output_format", "mp3")
+            
+            # Generate audio
+            audio = self.client.tts.convert(
+                text=text,
+                reference_id=provider_voice_id,
+                config=TTSConfig(format=output_format)
+            )
+            
+            return audio
+                    
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze speech synthesis failed: {str(exc)}") from exc
+
+    def delete_voice(self, provider_voice_id: str) -> None:
+        """Delete a voice using Breeze TTS."""
+        try:
+            result = self.client.voices.delete(voice_id=provider_voice_id)
+            print(f"Breeze: Deleted voice with ID: {provider_voice_id}, result: {result}")
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze voice deletion failed: {str(exc)}") from exc
+
+
 def provider_from_settings(settings: Settings) -> VoiceProvider | None:
     # Check for Breeze API key first
     if hasattr(settings, 'breeze_api_key') and settings.breeze_api_key:
         return BreezeVoiceProvider(settings.breeze_api_key.get_secret_value())
-    
+
+    if hasattr(settings, 'fish_api_key') and settings.fish_api_key:
+            return FishVoiceProvider(settings.fish_api_key.get_secret_value())
+
     # Fall back to HTTP provider
     if not settings.voice_provider_base_url or not settings.voice_provider_api_key:
         return None
