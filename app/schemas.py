@@ -57,7 +57,7 @@ class VoiceResponse(BaseModel):
     age_range: str
     ethnicity: str
     description: str
-    preview_url: HttpUrl | None
+    preview_url: HttpUrl
     status: str
     created_at: datetime
 

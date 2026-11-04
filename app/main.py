@@ -60,6 +60,7 @@ def create_app(
     )
     root = Path(__file__).parent
     application.mount("/static", StaticFiles(directory=root / "static"), name="static")
+    application.mount("/references", StaticFiles(directory=root / "data" / "references"), name="references")
 
     @application.get("/health", tags=["operations"])
     def health() -> dict[str, str]:

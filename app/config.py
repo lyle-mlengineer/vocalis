@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     voice_provider_base_url: str | None = None
     voice_provider_api_key: SecretStr | None = None
+    breeze_api_key: SecretStr | None = None
     voice_generation_credit_cost: int = 1
     speech_credits_per_1000_chars: int = 1
 

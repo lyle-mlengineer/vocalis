@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import quote
+from io import BytesIO
+from pathlib import Path
+
 
 import httpx
 
@@ -66,7 +69,127 @@ class HttpVoiceProvider:
             raise VoiceProviderError("Speech synthesis provider request failed.") from exc
 
 
+class BreezeVoiceProvider:
+    """Adapter for Breeze Blue TTS API."""
+
+    def __init__(self, api_key: str):
+        try:
+            from breeze_blue import BreezeBlue
+            self.client = BreezeBlue(api_key=api_key)
+        except ImportError as exc:
+            raise VoiceProviderError("breeze_blue library is not installed. Please install it to use Breeze TTS.") from exc
+
+    def create_voice(self, specification: dict) -> GeneratedVoice:
+        """Create a voice using Breeze's design preview and save workflow."""
+        try:
+            # Build voice description from specification
+            description_parts = []
+            if specification.get("gender"):
+                description_parts.append(f"{specification['gender']}")
+            if specification.get("age_range"):
+                description_parts.append(f"{specification['age_range']}")
+            if specification.get("ethnicity"):
+                description_parts.append(f"{specification['ethnicity']}")
+            if specification.get("description"): 
+                description_parts.append(specification["description"])
+            
+            voice_description = ". ".join(description_parts)
+            voice_name = specification.get("title", "Untitled Voice")
+
+            print(f"Breeze: Creating voice with description: {voice_description}")
+
+
+            # Step 1: Create design preview - try without language first (as per original example)
+            try:
+                design = self.client.voices.create_design_preview(
+                    voice_description=specification.get("description")
+                )
+                print(f"Breeze: Design preview created successfully")
+            except Exception as e:
+                print(f"Breeze: Error creating design preview: {e}")
+                # Try with language parameter
+                try:
+                    design = self.client.voices.create_design_preview(
+                        voice_description=specification.get("description"),
+                        language="en"
+                    )
+                    print(f"Breeze: Design preview created with language parameter")
+                except Exception as e2:
+                    print(f"Breeze: Error with language parameter: {e2}")
+                    raise VoiceProviderError(f"Breeze API error: {str(e2)}") from e2
+            
+            # print(f"Breeze: Design response: {design}")
+            print("Breeze: Design response keys:", list(design.keys()))
+            
+            if not design.get("previews") or len(design["previews"]) == 0:
+                raise VoiceProviderError("Breeze API returned no preview in design response.")
+            
+            generated_voice_id = design["previews"][0]["generated_voice_id"]
+            print(f"Breeze: Generated voice ID: {generated_voice_id}")
+
+            # Step 2: Get the generated voice
+            preview_audio = self.client.voices.stream_preview(generated_voice_id)
+            print(f"Breeze: Downloaded generated voice: {generated_voice_id}")
+
+            # Step 3: Save the generated voice locally
+            parent_dir = Path(__file__).parent.parent
+            reference_dir = parent_dir / "data" / "references"
+            save_path: Path = reference_dir / f"{generated_voice_id}.mp3"
+            print(f"Breeze: Saving to: {save_path}")
+            preview_audio.save(str(save_path))
+            print(f"Breeze: Saved successfully")
+            
+            # Return None for preview_url since we're using local files
+            return GeneratedVoice(provider_voice_id=generated_voice_id, preview_url=None)
+            
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze voice creation failed: {str(exc)}") from exc
+
+    def synthesize(self, provider_voice_id: str, text: str, settings: dict) -> bytes:
+        """Synthesize speech using Breeze TTS."""
+        try:
+            # Extract settings with defaults
+            output_format = settings.get("output_format", "mp3")
+            
+            # Generate audio
+            audio = self.client.text_to_speech.convert(
+                voice_id=provider_voice_id,
+                text=text,
+                output_format=output_format
+            )
+            
+            # Convert to bytes if it's a file-like object
+            if hasattr(audio, 'read'):
+                # It's a file-like object
+                buffer = BytesIO()
+                audio.save(buffer, format=output_format)
+                return buffer.getvalue()
+            elif isinstance(audio, bytes):
+                return audio
+            else:
+                # Assume it's a path or similar, try to read it
+                if hasattr(audio, 'save'):
+                    # It's an audio object with save method
+                    buffer = BytesIO()
+                    audio.save(buffer, format=output_format)
+                    return buffer.getvalue()
+                else:
+                    raise VoiceProviderError("Unexpected audio format from Breeze API.")
+                    
+        except Exception as exc:
+            if isinstance(exc, VoiceProviderError):
+                raise
+            raise VoiceProviderError(f"Breeze speech synthesis failed: {str(exc)}") from exc
+
+
 def provider_from_settings(settings: Settings) -> VoiceProvider | None:
+    # Check for Breeze API key first
+    if hasattr(settings, 'breeze_api_key') and settings.breeze_api_key:
+        return BreezeVoiceProvider(settings.breeze_api_key.get_secret_value())
+    
+    # Fall back to HTTP provider
     if not settings.voice_provider_base_url or not settings.voice_provider_api_key:
         return None
     return HttpVoiceProvider(
