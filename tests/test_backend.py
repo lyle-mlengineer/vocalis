@@ -131,6 +131,11 @@ def test_delete_voice_removes_local_reference(client: TestClient, monkeypatch, t
         session.commit()
         voice_id = voice.id
 
+    download = client.get(f"/api/v1/voices/{voice_id}/download", headers=headers)
+    assert download.status_code == 200
+    assert download.content == b"voice reference"
+    assert download.headers["content-disposition"].startswith("attachment;")
+
     response = client.delete(f"/api/v1/voices/{voice_id}", headers=headers)
 
     assert response.status_code == 200, response.text

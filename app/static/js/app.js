@@ -272,8 +272,13 @@
     const search = $("[data-voice-search]");
     grid.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
-      const button = event.target.closest("[data-voice-action]");
-      if (button) onVoiceAction(button);
+      const action = event.target.closest("[data-voice-action]");
+      if (action) onVoiceAction(action);
+    });
+    const modal = $("[data-voice-modal]");
+    modal?.addEventListener("close", () => {
+      const audio = $("audio", modal);
+      audio?.pause();
     });
     $$("[data-library-tab]").forEach((button) => button.addEventListener("click", () => {
       currentLibraryTab = button.dataset.libraryTab;
@@ -337,10 +342,13 @@
 
     function renderVoiceCard(voice) {
       const metadata = [voice.gender, voice.age_range, voice.ethnicity].filter(Boolean).map(escapeHtml).join(" · ");
-      const audioUrl = safeAudioUrl(voice.preview_url);
-      const playable = audioUrl ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noopener">Listen</a>` : "";
+      const previewUrl = voice.preview_url || (voice.provider_voice_id
+        ? `/references/${encodeURIComponent(voice.provider_voice_id)}.mp3`
+        : null);
+      const audioUrl = safeAudioUrl(previewUrl);
+      const playable = audioUrl ? `<button type="button" data-voice-action="listen" data-id="${escapeHtml(voice.id)}">Listen</button>` : "";
       const actions = getToken()
-        ? `<button type="button" data-voice-action="edit" data-id="${escapeHtml(voice.id)}">Edit</button><button type="button" data-voice-action="regenerate" data-id="${escapeHtml(voice.id)}">Regenerate</button><a href="/playground?voice=${encodeURIComponent(voice.id)}">Playground</a>${playable}<a href="/api/v1/voices/${encodeURIComponent(voice.id)}/download">Download</a><button type="button" class="button button-danger" data-voice-action="delete" data-id="${escapeHtml(voice.id)}">Delete</button>`
+        ? `<button type="button" data-voice-action="edit" data-id="${escapeHtml(voice.id)}">Edit</button><button type="button" data-voice-action="regenerate" data-id="${escapeHtml(voice.id)}">Regenerate</button><a href="/playground?voice=${encodeURIComponent(voice.id)}">Playground</a>${playable}<button type="button" data-voice-action="download" data-id="${escapeHtml(voice.id)}">Download</button><button type="button" class="button button-danger" data-voice-action="delete" data-id="${escapeHtml(voice.id)}">Delete</button>`
         : `${playable}<a href="/register">Sign in to save</a>`;
       return `<article class="voice-card"><div class="voice-card-top"><div class="voice-avatar">${escapeHtml((voice.title || "V").slice(0, 1).toUpperCase())}</div><div class="voice-card-title"><b>${escapeHtml(voice.title)}</b><span>${metadata}</span></div></div><p class="voice-card-description">${escapeHtml(voice.description)}</p><div class="voice-card-actions">${actions}</div></article>`;
     }
@@ -357,23 +365,77 @@
       const voice = [...loadedVoices, ...loadedDrafts].find((item) => item.id === id);
       if (!voice) return;
       if (action === "delete") {
-        if (!window.confirm(`Delete "${voice.title}"? This will delete its voice reference and remove it from all albums. This cannot be undone.`)) return;
-        try {
-          await api(`/voices/${encodeURIComponent(id)}`, { method: "DELETE" });
-          loadedVoices = loadedVoices.filter((item) => item.id !== id);
-          loadedDrafts = loadedDrafts.filter((item) => item.id !== id);
-          // Reload albums to update voice references
-          if (getToken()) {
-            loadedAlbums = await api("/albums");
-          }
-          renderLibrary();
-          toast("Voice deleted.", "success");
-        } catch (error) { toast(error.message, "error"); }
+        confirmDeleteVoice(voice);
+      } else if (action === "listen") {
+        openVoicePlayer(voice);
+      } else if (action === "download") {
+        downloadVoice(voice);
       } else if (action === "edit") {
         editVoice(voice, false);
       } else if (action === "regenerate") {
         editVoice(voice, true);
       }
+    }
+
+    async function downloadVoice(voice) {
+      try {
+        const response = await api(`/voices/${encodeURIComponent(voice.id)}/download`);
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `${voice.id}.mp3`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    }
+
+    function openVoicePlayer(voice) {
+      const previewUrl = voice.preview_url || (voice.provider_voice_id
+        ? `/references/${encodeURIComponent(voice.provider_voice_id)}.mp3`
+        : null);
+      const audioUrl = safeAudioUrl(previewUrl);
+      if (!audioUrl) {
+        toast("Audio preview is not available for this voice.", "error");
+        return;
+      }
+      const modal = $("[data-voice-modal]");
+      const content = $("[data-modal-content]");
+      content.innerHTML = `<span class="eyebrow">VOICE PREVIEW</span><h2>${escapeHtml(voice.title)}</h2><p>Listen to your saved voice below.</p><audio class="audio-inline" controls preload="metadata" src="${escapeHtml(audioUrl)}">Your browser does not support audio playback.</audio>`;
+      modal.showModal();
+    }
+
+    function confirmDeleteVoice(voice) {
+      const modal = $("[data-voice-modal]");
+      const content = $("[data-modal-content]");
+      content.innerHTML = `<span class="eyebrow">DELETE VOICE</span><h2>Remove this voice?</h2><p><strong>${escapeHtml(voice.title)}</strong> and its reference audio will be permanently deleted and removed from all albums. This cannot be undone.</p><form data-delete-voice-form><div class="voice-delete-actions"><button type="button" class="button button-outline" data-cancel-delete>Keep voice</button><button type="submit" class="button button-danger" data-confirm-delete>Delete voice</button></div></form>`;
+      modal.showModal();
+      $("[data-cancel-delete]", content).addEventListener("click", () => modal.close());
+      $("[data-delete-voice-form]", content).addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const confirmButton = $("[data-confirm-delete]", content);
+        confirmButton.disabled = true;
+        confirmButton.textContent = "Deleting…";
+        try {
+          await api(`/voices/${encodeURIComponent(voice.id)}`, { method: "DELETE" });
+          loadedVoices = loadedVoices.filter((item) => item.id !== voice.id);
+          loadedDrafts = loadedDrafts.filter((item) => item.id !== voice.id);
+          // Reload albums to update voice references
+          if (getToken()) {
+            loadedAlbums = await api("/albums");
+          }
+          modal.close();
+          renderLibrary();
+          toast("Voice deleted.", "success");
+        } catch (error) {
+          toast(error.message, "error");
+          confirmButton.disabled = false;
+          confirmButton.textContent = "Delete voice";
+        }
+      });
     }
   }
 

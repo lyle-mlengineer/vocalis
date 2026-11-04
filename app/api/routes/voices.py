@@ -2,7 +2,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -249,6 +249,16 @@ def delete_voice(voice_id: str, request: Request, db: DbSession, user: CurrentUs
 @router.get("/voices/{voice_id}/download")
 def download_voice(voice_id: str, db: DbSession, user: CurrentUser):
     record = _owned_voice(db, voice_id, user.id)
-    if not record.preview_url:
+    if not record.provider_voice_id:
         raise HTTPException(status_code=404, detail="No downloadable audio is available for this voice.")
-    return RedirectResponse(record.preview_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    reference_dir = REFERENCE_DIR.resolve()
+    reference_path = (reference_dir / f"{record.provider_voice_id}.mp3").resolve()
+    if reference_path.parent != reference_dir:
+        raise HTTPException(status_code=500, detail="Voice reference path is invalid.")
+    if not reference_path.is_file():
+        raise HTTPException(status_code=404, detail="Voice reference audio is not available for download.")
+    return FileResponse(
+        reference_path,
+        media_type="audio/mpeg",
+        filename=f"{record.id}.mp3",
+    )
