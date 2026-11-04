@@ -138,9 +138,34 @@ class BreezeVoiceProvider:
             print(f"Breeze: Saving to: {save_path}")
             preview_audio.save(str(save_path))
             print(f"Breeze: Saved successfully")
+
+            # Step 4: Save the preview as a persistent custom voice
+            print(f"Breeze: Saving voice preview with name: {voice_name}")
+            preview = self.client.voices.create_clone_preview(
+                name=voice_name,
+                file=Path(save_path),
+            )
+            generated_voice_id = preview["generated_voice_id"]
+            print(f"Breeze: Saved preview: {voice_name}")
+
+            # Step 5: Save the preview as a voice
+            print(f"Breeze: Saving voice with name: {voice_name}")
+            voice = self.client.voices.save_preview(
+                generated_voice_id=generated_voice_id,
+                voice_name=voice_name,
+                language_code="en",
+            )
+            voice_id = voice["voice_id"]
+            print(f"Breeze: Saved voice with voice name: {voice_name} and voice id: {voice_id}")
+
+            # Step 6: Rename the voice
+            new_save_path: Path = reference_dir / f"{voice_id}.mp3"
+            print(f"Renaming: {save_path} to: {new_save_path}")
+            save_path.rename(new_save_path)
+            print("Renamed successfully!")
             
             # Return None for preview_url since we're using local files
-            return GeneratedVoice(provider_voice_id=generated_voice_id, preview_url=None)
+            return GeneratedVoice(provider_voice_id=voice_id, preview_url=None)
             
         except Exception as exc:
             if isinstance(exc, VoiceProviderError):

@@ -336,7 +336,7 @@
       const audioUrl = safeAudioUrl(voice.preview_url);
       const playable = audioUrl ? `<a href="${escapeHtml(audioUrl)}" target="_blank" rel="noopener">Listen</a>` : "";
       const actions = getToken()
-        ? `<button type="button" data-voice-action="edit" data-id="${escapeHtml(voice.id)}">Edit</button><button type="button" data-voice-action="regenerate" data-id="${escapeHtml(voice.id)}">Regenerate</button><a href="/playground?voice=${encodeURIComponent(voice.id)}">Playground</a>${playable}<a href="/api/v1/voices/${encodeURIComponent(voice.id)}/download">Download</a><button type="button" data-voice-action="delete" data-id="${escapeHtml(voice.id)}">Delete</button>`
+        ? `<button type="button" data-voice-action="edit" data-id="${escapeHtml(voice.id)}">Edit</button><button type="button" data-voice-action="regenerate" data-id="${escapeHtml(voice.id)}">Regenerate</button><a href="/playground?voice=${encodeURIComponent(voice.id)}">Playground</a>${playable}<a href="/api/v1/voices/${encodeURIComponent(voice.id)}/download">Download</a><button type="button" class="button button-danger" data-voice-action="delete" data-id="${escapeHtml(voice.id)}">Delete</button>`
         : `${playable}<a href="/register">Sign in to save</a>`;
       return `<article class="voice-card"><div class="voice-card-top"><div class="voice-avatar">${escapeHtml((voice.title || "V").slice(0, 1).toUpperCase())}</div><div class="voice-card-title"><b>${escapeHtml(voice.title)}</b><span>${metadata}</span></div></div><p class="voice-card-description">${escapeHtml(voice.description)}</p><div class="voice-card-actions">${actions}</div></article>`;
     }
@@ -353,15 +353,21 @@
       const voice = loadedVoices.find((item) => item.id === id);
       if (!voice) return;
       if (action === "delete") {
-        if (!window.confirm(`Delete “${voice.title}”? This cannot be undone.`)) return;
+        if (!window.confirm(`Delete "${voice.title}"? This will delete the voice data and remove it from all albums. This cannot be undone.`)) return;
         try {
           await api(`/voices/${encodeURIComponent(id)}`, { method: "DELETE" });
           loadedVoices = loadedVoices.filter((item) => item.id !== id);
+          // Reload albums to update voice references
+          if (getToken()) {
+            loadedAlbums = await api("/albums");
+          }
           renderLibrary();
           toast("Voice deleted.", "success");
         } catch (error) { toast(error.message, "error"); }
-      } else {
-        editVoice(voice, action === "regenerate");
+      } else if (action === "edit") {
+        editVoice(voice, false);
+      } else if (action === "regenerate") {
+        editVoice(voice, true);
       }
     }
   }
@@ -668,32 +674,50 @@
     if (!form) return;
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      event.stopPropagation();
+      
       const button = $("[data-auth-submit]", form);
       const email = form.elements.email.value.trim();
       const password = form.elements.password.value;
+      
+      console.log("Auth form submitted:", { email, password, authMode: form.dataset.authMode });
+      
+      if (!email || !password) {
+        toast("Please fill in all fields.", "error");
+        return;
+      }
+      
       const endpoint = form.dataset.authMode === "register" ? "/auth/register" : "/auth/login";
       button.disabled = true;
       button.textContent = form.dataset.authMode === "register" ? "Creating your account…" : "Signing you in…";
+      
       try {
+        console.log("Calling API:", endpoint);
         const response = await api(endpoint, {
           method: "POST",
           headers: endpoint.endsWith("register") ? { "X-Guest-ID": guestId() } : {},
           body: JSON.stringify({ email, password }),
         });
+        console.log("API response:", response);
         localStorage.setItem(storage.token, response.access_token);
         localStorage.removeItem(storage.guestVoiceId);
         toast("Welcome to Vocalis.", "success");
         const destination = new URLSearchParams(location.search).get("next");
         window.location.assign(destination?.startsWith("/") ? destination : "/dashboard");
       } catch (error) {
+        console.error("Auth error:", error);
         toast(error.message, "error");
       } finally {
         button.disabled = false;
         button.innerHTML = `${form.dataset.authMode === "register" ? "Create your account" : "Sign in"} <span>→</span>`;
       }
     });
+  }
 
-    $("[data-google-signin]")?.addEventListener("click", async (event) => {
+  function setupGoogleSignIn() {
+    const button = $("[data-google-signin]");
+    if (!button) return;
+    button.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       const config = window.VOCALIS_FIREBASE || {};
       if (!config.apiKey || !config.authDomain || !config.projectId || !config.appId) {
@@ -739,6 +763,7 @@
     setupDashboard();
     setupBilling();
     setupAuth();
+    setupGoogleSignIn();
     setupDemoPlay();
   });
 })();
