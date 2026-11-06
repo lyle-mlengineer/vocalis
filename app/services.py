@@ -21,14 +21,14 @@ def charge_credits(db: Session, user: User, amount: int, kind: str, reference: s
 
     result = db.execute(
         update(User)
-        .where(User.id == user.id, User.credits_balance >= amount)
+        .where(User.id == user.id)
         .values(credits_balance=User.credits_balance - amount)
         .returning(User.credits_balance)
     )
     balance_after = result.scalar_one_or_none()
     if balance_after is None:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Insufficient credits.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     db.add(
         CreditLedger(
             user_id=user.id,

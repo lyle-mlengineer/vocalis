@@ -12,3 +12,4 @@ firebase-admin>=6.5,<8
 stripe>=11,<13
 pytest>=8,<9
 breeze-blue>=0.1,<1
+fish-audio-sdk

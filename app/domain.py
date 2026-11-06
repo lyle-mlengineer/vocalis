@@ -41,8 +41,6 @@ class CreditAccount:
     def debit(self, amount: int, reason: str) -> None:
         if amount <= 0:
             raise ValueError("Debit amount must be positive.")
-        if self.balance < amount:
-            raise ValueError("Insufficient credits.")
         self.balance -= amount
         self.events.append(CreditsDebited("credits.debited", self.account_id, amount, reason))
 

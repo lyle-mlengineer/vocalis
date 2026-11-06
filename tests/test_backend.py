@@ -6,7 +6,7 @@ from app.domain import Album, CreditAccount
 from app.main import create_app
 from app.models import CreditLedger, PaymentRecord, User, VoiceRecord
 from app.providers.voice import GeneratedVoice
-from app.services import settle_payment
+from app.services import charge_credits, settle_payment
 
 
 class FakeVoiceProvider:
@@ -199,12 +199,28 @@ def test_payment_settlement_is_idempotent(client: TestClient):
         assert session.query(CreditLedger).filter(CreditLedger.kind == "purchase").count() == 1
 
 
+def test_charge_credits_allows_negative_balance(client: TestClient):
+    register(client)
+    with client.app.state.session_factory() as session:
+        user = session.query(User).one()
+        user.credits_balance = 0
+        session.commit()
+
+        charge_credits(session, user, 1, "synthesis")
+
+        assert user.credits_balance == -1
+        ledger = session.query(CreditLedger).filter(CreditLedger.kind == "synthesis").one()
+        assert ledger.delta == -1
+        assert ledger.balance_after == -1
+
+
 def test_domain_rules_and_events():
     account = CreditAccount("user-1", 2)
     account.debit(1, "synthesis")
     assert account.balance == 1
-    with pytest.raises(ValueError, match="Insufficient credits"):
-        account.debit(2, "synthesis")
+    account.debit(2, "synthesis")
+    assert account.balance == -1
+    assert len(account.events) == 2
 
     album = Album("album-1", "user-1", "Trailers", "")
     album.add_voice("voice-1")
