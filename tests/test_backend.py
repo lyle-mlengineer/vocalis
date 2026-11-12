@@ -43,7 +43,12 @@ def register(client: TestClient, email: str = "person@example.com") -> tuple[dic
     return result, result["access_token"]
 
 
-def test_guest_can_generate_once_then_claim_voice(client: TestClient):
+def test_guest_can_generate_once_then_claim_voice(client: TestClient, monkeypatch, tmp_path):
+    reference_dir = tmp_path / "references"
+    reference_dir.mkdir()
+    (reference_dir / "provider-voice-1.mp3").write_bytes(b"guest audio")
+    monkeypatch.setattr(voice_routes, "REFERENCE_DIR", reference_dir)
+
     guest_id = "d1f6c650-79f8-44c8-8ea4-c548ee7166e3"
     payload = {
         "title": "Narrator",
@@ -74,11 +79,13 @@ def test_guest_can_generate_once_then_claim_voice(client: TestClient):
     token = claimed.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/api/v1/voices", headers=headers).json()[0]["id"] == voice_id
-    assert client.get(
+    download = client.get(
         f"/api/v1/voices/{voice_id}/download",
         headers=headers,
         follow_redirects=False,
-    ).status_code == 307
+    )
+    assert download.status_code == 200
+    assert download.content == b"guest audio"
 
 
 def test_registered_voice_generation_charges_credits(client: TestClient):

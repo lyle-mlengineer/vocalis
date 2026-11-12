@@ -1,3 +1,5 @@
+import math
+
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.api.dependencies import CurrentUser, DbSession
@@ -27,8 +29,10 @@ def synthesize_speech(
     if provider is None:
         raise HTTPException(status_code=503, detail="Voice generation provider is not configured.")
 
-    # Skip credit charging for testing
-    cost = 0
+    settings = request.app.state.settings
+    cost = max(1, math.ceil(len(body.text) / 1000)) * settings.speech_credits_per_1000_chars
+    if cost:
+        charge_credits(db, user, cost, "speech_synthesis")
 
     print("\n" + "="*60)
     print("SPEECH GENERATION PARAMETERS")
@@ -54,11 +58,13 @@ def synthesize_speech(
             },
         )
     except VoiceProviderError as exc:
-        refund_credits(db, user.id, cost, f"speech-failed:{voice.id}")
+        if cost:
+            refund_credits(db, user.id, cost, f"speech-failed:{voice.id}")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception:
         db.rollback()
-        refund_credits(db, user.id, cost, f"speech-failed:{voice.id}")
+        if cost:
+            refund_credits(db, user.id, cost, f"speech-failed:{voice.id}")
         raise
 
     request.app.state.event_bus.publish(

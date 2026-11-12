@@ -56,8 +56,9 @@ def generate_voice(
     if provider is None:
         raise HTTPException(status_code=503, detail="Voice generation provider is not configured.")
 
-    # Skip credit charging for testing
-    cost = 0
+    cost = request.app.state.settings.voice_generation_credit_cost if user else 0
+    if cost:
+        charge_credits(db, user, cost, "voice_generation")
 
     print("\n" + "="*60)
     print("VOICE DESIGN PARAMETERS")
@@ -171,8 +172,9 @@ def regenerate_voice(
     if provider is None:
         raise HTTPException(status_code=503, detail="Voice generation provider is not configured.")
 
-    # Skip credit charging for testing
-    cost = 0
+    cost = request.app.state.settings.voice_generation_credit_cost
+    if cost:
+        charge_credits(db, user, cost, "voice_regeneration")
 
     print("\n" + "="*60)
     print("VOICE REGENERATION PARAMETERS")
@@ -201,11 +203,13 @@ def regenerate_voice(
         db.refresh(record)
     except VoiceProviderError as exc:
         db.rollback()
-        refund_credits(db, user.id, cost, f"voice-regeneration-failed:{voice_id}")
+        if cost:
+            refund_credits(db, user.id, cost, f"voice-regeneration-failed:{voice_id}")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception:
         db.rollback()
-        refund_credits(db, user.id, cost, f"voice-regeneration-failed:{voice_id}")
+        if cost:
+            refund_credits(db, user.id, cost, f"voice-regeneration-failed:{voice_id}")
         raise
 
     request.app.state.event_bus.publish(
